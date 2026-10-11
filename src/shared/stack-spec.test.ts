@@ -12,6 +12,20 @@ const BUILD = {
 } as const;
 
 describe("buildStackAppSpec", () => {
+  test("carries storage and notification bindings into a stack member", () => {
+    const manifest: DeployManifest = {
+      name: "Worker",
+      build: BUILD,
+      volume: null,
+      placement: { "server-1": 1 },
+      storage: { primary: { bucket: "blobs", prefix: "app/", permissions: ["read"] } },
+      notifications: { primary: { permissions: ["publish"], generation: 0 } },
+    };
+    const spec = buildStackAppSpec("worker", { manifest: "worker.json" }, manifest, "", ".");
+    expect(spec.notifications).toEqual({ primary: { permissions: ["publish"], generation: 0 } });
+    expect(spec.storage).toEqual(manifest.storage);
+  });
+
   test("carries the full canonical app manifest deployment spec into a stack", () => {
     const manifest: DeployManifest = {
       name: "API",
