@@ -89,7 +89,7 @@ export function NtfyServiceSettings() {
 
 export function UserNtfySettings() {
   const [state, setState] = useState<any>(null);
-  const [form, setForm] = useState<NtfyPreferences>({ enabled: false, events: ["app", "delivery", "disk", "backup"], recovery: true });
+  const [form, setForm] = useState<NtfyPreferences>({ enabled: false, events: ["app", "delivery", "disk", "backup"], recovery: true, apps: [] });
   const [secret, setSecret] = useState<{ password: string; token: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -107,6 +107,13 @@ export function UserNtfySettings() {
         {([['app', 'Unhealthy apps'], ['delivery', 'Failed deployments'], ['disk', 'Disk pressure'], ['backup', 'Panel backups']] as const).map(([key, label]) => <ToggleRow key={key} label={label} checked={form.events.includes(key)} disabled={!form.enabled} onChange={checked => setForm({ ...form, events: checked ? [...form.events, key] : form.events.filter(k => k !== key) })} />)}
         <ToggleRow label="Recovery notices" checked={form.recovery} disabled={!form.enabled} onChange={recovery => setForm({ ...form, recovery })} />
       </div>
+      {!!state.apps?.length && <>
+        <div className="border-t px-4 pt-4"><h3 className="text-sm font-semibold text-fg">App notifications</h3><p className="mt-0.5 text-xs text-muted">Forward messages that apps publish to their ntfy binding.</p></div>
+        {!state.apps_available && <div className="px-4 pt-3"><InlineNotice tone="warning">App topics are disabled in Settings → Panel.</InlineNotice></div>}
+        <div className="px-4">
+          {state.apps.map((app: { id: number; name: string }) => <ToggleRow key={app.id} label={app.name} checked={form.apps.includes(app.id)} disabled={!form.enabled || !state.apps_available} onChange={checked => setForm({ ...form, apps: checked ? [...form.apps, app.id] : form.apps.filter(id => id !== app.id) })} />)}
+        </div>
+      </>}
       <div className="flex justify-end gap-2 border-t bg-subtle/40 px-4 py-3"><Btn variant="primary" loading={busy} onClick={() => action(async () => { await put("/api/auth/notifications", form); setSecret(null); await load(); showToast("Notification preferences saved", "success"); })}>Save preferences</Btn></div>
       {state.connection && <div className="border-t">
         <div className="flex flex-wrap items-center justify-between gap-2 px-4 pt-4"><div className="flex items-center gap-2"><Server size={14} className="text-muted" /><h3 className="text-sm font-semibold text-fg">Connect your ntfy client</h3></div><a href={state.connection.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm text-fg-dim hover:text-fg">Open server <ExternalLink size={13} /></a></div>

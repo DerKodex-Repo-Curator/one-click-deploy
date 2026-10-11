@@ -1,4 +1,4 @@
-import { enqueueNtfyIncident, deliverNtfy } from "../ntfy/alerts.ts";
+import { enqueueNtfyIncident, deliverNtfy, relayAppNtfy } from "../ntfy/alerts.ts";
 import db, { getSettings, saveSetting } from "../../shared/db.ts";
 
 export type Condition = { key: string; title: string; path: string; grace?: number; hold?: boolean };
@@ -73,5 +73,6 @@ export async function alertTick(): Promise<void> {
   const s = getSettings();
   if (!s.incident_tracking_enabled_at) saveSetting("incident_tracking_enabled_at", String(Date.now()));
   reconcileIncidents(collectConditions());
+  await relayAppNtfy();
   await deliverNtfy();
 }

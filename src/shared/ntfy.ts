@@ -10,7 +10,7 @@ export function ntfyUrl(): string {
   if (!app?.domain) throw new Error("Select an ntfy app with an HTTPS domain in Settings → Panel");
   return `https://${app.domain}`;
 }
-export const ntfyPreferences = (id: string): NtfyPreferences => JSON.parse(getSettings()[`ntfy_user.${id}`] || '{"enabled":false,"events":["app","delivery","disk","backup"],"recovery":true}');
+export const ntfyPreferences = (id: string): NtfyPreferences => ({ apps: [], ...JSON.parse(getSettings()[`ntfy_user.${id}`] || '{"enabled":false,"events":["app","delivery","disk","backup"],"recovery":true}') });
 export const getAppNtfy = (id: number): NtfyBindings => JSON.parse(getSettings()[`app_ntfy.${id}`] || "{}");
 export const ntfyHash = (value: string) => createHash("sha256").update(value).digest("hex");
 export type NtfyCredential = { id: string; owner_type: string; owner_id: string; binding: string; permissions: string; generation: number; topic: string; username: string; password_hash: string; encrypted_value: string; iv: string };
@@ -74,8 +74,13 @@ export async function appNtfyEnv(appId: number, bindings = getAppNtfy(appId)): P
 export function canReceiveNtfy(userId: string, key: string, recovered: boolean): boolean {
   const user = getUserById(userId);
   const prefs = ntfyPreferences(userId);
+  if (!user || !prefs.enabled) return false;
+  if (key.startsWith("relay:")) {
+    const appId = Number(key.split(":")[1]);
+    return prefs.apps.includes(appId) && !!getApp(appId);
+  }
   const category = key.split(":")[0] as NtfyPreferences["events"][number];
-  if (!user || !prefs.enabled || !prefs.events.includes(category) || (recovered && !prefs.recovery)) return false;
+  if (!prefs.events.includes(category) || (recovered && !prefs.recovery)) return false;
   if (category === "app") return !!getApp(Number(key.slice(4)));
   return true;
 }
@@ -92,6 +97,17 @@ export function retireAppNtfyCredentials(appId: number): void {
       db.query("DELETE FROM ntfy_credentials WHERE id=?").run(c.id);
     }
   }
+}
+
+/** Apps that publish to a notification binding; users may subscribe to these in Account → Notifications. */
+export function ntfyPublishingApps(): { id: number; name: string }[] {
+  return db.query("SELECT key FROM settings WHERE key LIKE 'app_ntfy.%'").all()
+    .map(row => Number((row as { key: string }).key.slice("app_ntfy.".length)))
+    .filter(id => Object.values(getAppNtfy(id)).some(spec => spec.permissions.includes("publish")))
+    .map(id => getApp(id))
+    .filter(app => !!app && !app.deletion_requested_at)
+    .map(app => ({ id: app!.id, name: app!.name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export function appNtfyView(appId: number) {

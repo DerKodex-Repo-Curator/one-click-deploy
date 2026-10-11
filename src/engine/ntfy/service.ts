@@ -20,7 +20,11 @@ export function renderNtfyEnvironment(settings: NtfySettings, domain: string, cr
     NTFY_UPSTREAM_BASE_URL: settings.ios_push ? "https://ntfy.sh" : "",
     NTFY_AUTH_USERS: credentials.map(c => `${c.username}:${c.password_hash}:user`).join(","),
     NTFY_AUTH_TOKENS: credentials.map(c => `${c.username}:${c.token}`).join(","),
-    NTFY_AUTH_ACCESS: credentials.map(c => `${c.username}:${c.owner_type === "system" ? "ocd-user-*" : c.topic}:${c.access}`).join(","),
+    NTFY_AUTH_ACCESS: credentials.flatMap(c => c.owner_type !== "system"
+      ? [`${c.username}:${c.topic}:${c.access}`]
+      // The panel publishes alerts to user topics and, with app topics on, reads
+      // app topics to forward them to subscribed users.
+      : [`${c.username}:ocd-user-*:${c.access}`, ...(settings.enabled && settings.apps ? [`${c.username}:ocd-app-*:ro`] : [])]).join(","),
   };
 }
 export async function ntfyEnvironment(settings: NtfySettings, domain: string): Promise<Record<string, string>> {

@@ -5,7 +5,7 @@ import { requireAuthenticated } from "../lib/permissions.ts";
 import { corsHeaders } from "../lib/cors.ts";
 import { handleError } from "../lib/utils.ts";
 import { enqueue } from "../ipc/enqueue.ts";
-import { ntfySettings, ntfyPreferences, ensureNtfyCredential, credentialSecret, ntfyCredentials, ntfyApp, ntfyUrl } from "../../shared/ntfy.ts";
+import { ntfySettings, ntfyPreferences, ensureNtfyCredential, credentialSecret, ntfyCredentials, ntfyApp, ntfyUrl, ntfyPublishingApps } from "../../shared/ntfy.ts";
 import { NtfySettingsSchema, NtfyPreferencesSchema, CreateNtfyAppSchema } from "../../shared/ntfy-schema.ts";
 import { enqueueNtfyTest } from "../../engine/ntfy/alerts.ts";
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { ...corsHeaders, "cache-control": "no-store" } });
@@ -64,6 +64,7 @@ export async function handleUserNtfy(request: Request): Promise<Response> {
     const credential = ntfyCredentials().find(c => c.owner_type === "user" && c.owner_id === actor.userId);
     const delivery = db.default.query("SELECT title,sent_at,error,attempts FROM ntfy_outbox WHERE user_id=? ORDER BY created_at DESC LIMIT 1").get(actor.userId);
     return json({ available: !!settings?.enabled && settings.alerts && !!ntfyApp(), preferences, status: ntfyApp()?.status || "unconfigured", delivery,
+      apps: ntfyPublishingApps(), apps_available: !!settings?.enabled && !!settings.apps,
       connection: settings && ntfyApp()?.domain && credential && preferences.enabled ? { url: ntfyUrl(), topic: credential.topic, username: credential.username } : null });
   } catch (error) { return handleError(error); }
 }

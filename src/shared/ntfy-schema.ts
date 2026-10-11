@@ -9,6 +9,8 @@ export const NtfyPreferencesSchema = z.object({
   enabled: z.boolean(),
   events: z.array(z.enum(["app", "delivery", "disk", "backup"])),
   recovery: z.boolean(),
+  /** Hosted apps whose notification topics are forwarded to this user. */
+  apps: z.array(z.number().int().positive()).default([]),
 }).strict();
 export type NtfyPreferences = z.infer<typeof NtfyPreferencesSchema>;
 export const NtfySettingsSchema = z.object({

@@ -3,9 +3,9 @@ import { ntfyDeployRequest } from "../engine/ntfy/app.ts";
 import { test, expect } from "bun:test";
 import * as db from "./db.ts";
 import { NtfyBindingsSchema, NtfySettingsSchema } from "./ntfy-schema.ts";
-import { ensureNtfyCredential, credentialSecret, prepareNtfyBindings, saveAppNtfy, appNtfyEnv, ntfyCredentials, retireAppNtfyCredentials, ntfyAccess } from "./ntfy.ts";
+import { ensureNtfyCredential, credentialSecret, prepareNtfyBindings, saveAppNtfy, appNtfyEnv, ntfyCredentials, retireAppNtfyCredentials, ntfyAccess, ntfyPublishingApps } from "./ntfy.ts";
 import { renderNtfyEnvironment, reconcileNtfyService } from "../engine/ntfy/service.ts";
-import { enqueueNtfyIncident, deliverNtfy } from "../engine/ntfy/alerts.ts";
+import { enqueueNtfyIncident, deliverNtfy, relayAppNtfy } from "../engine/ntfy/alerts.ts";
 
 function enable() {
   const env = db.insertEnvironment("ntfy", '{"version":2,"entries":[]}');
@@ -127,4 +127,41 @@ test("schema 116 upgrades ntfy tables without changing existing settings", async
     expect(upgraded.query("SELECT version FROM schema_version").get()).toEqual({ version: CURRENT_SCHEMA_VERSION });
     upgraded.close();
   } finally { rmSync(folder, { recursive: true, force: true }); }
+});
+
+test("app messages are forwarded only to users who subscribed to that app", async () => {
+  enable(); user("alice"); user("bob");
+  const publisher = db.insertApp({ name: "foody-worker", domain: "", image_ref: `ghcr.io/example/worker@sha256:${"b".repeat(64)}`, container_port: 3000, env_vars: "{}" });
+  const binding = NtfyBindingsSchema.parse({ primary: { permissions: ["publish"] } });
+  await prepareNtfyBindings(publisher.id, binding); saveAppNtfy(publisher.id, binding, true);
+  await ensureNtfyCredential("system", "events"); await ensureNtfyCredential("user", "alice"); await ensureNtfyCredential("user", "bob");
+  db.saveSetting("ntfy_user.alice", JSON.stringify({ enabled: true, events: [], recovery: true, apps: [publisher.id] }));
+  expect(ntfyPublishingApps()).toEqual([{ id: publisher.id, name: "foody-worker" }]);
+  const system = ntfyCredentials().find(c => c.owner_type === "system")!;
+  const access = renderNtfyEnvironment(NtfySettingsSchema.parse({ enabled: true, alerts: true, apps: true }), "notify.example.com", [{ ...system, token: "tk", access: "wo" }]).NTFY_AUTH_ACCESS;
+  expect(access).toBe(`${system.username}:ocd-user-*:wo,${system.username}:ocd-app-*:ro`);
+
+  const polled: string[] = [];
+  const fetcher = (async (url: string) => {
+    polled.push(url);
+    return new Response([
+      { id: "m1", time: 2, event: "open" },
+      { id: "m2", time: 3, event: "message", title: "Neues Abo: Pro monatlich", message: "Voller Preis", tags: ["moneybag"], priority: 4 },
+    ].map(line => JSON.stringify(line)).join("\n"));
+  }) as unknown as typeof fetch;
+  await relayAppNtfy(fetcher, 1_000_000);
+  expect(polled).toEqual([]);
+  await relayAppNtfy(fetcher, 1_030_000); await relayAppNtfy(fetcher, 1_060_000);
+  expect(polled[0]).toContain("/json?poll=1&since=1000");
+  expect(polled[1]).toContain("since=m2");
+  expect(db.default.query("SELECT user_id,title FROM ntfy_outbox").all()).toEqual([{ user_id: "alice", title: "Neues Abo: Pro monatlich" }]);
+
+  const sent: any[] = [];
+  await deliverNtfy((async (_url: string, init: RequestInit) => { sent.push(JSON.parse(String(init.body))); return new Response(null); }) as unknown as typeof fetch, 1_060_000);
+  expect(sent).toEqual([{ topic: ntfyCredentials().find(c => c.owner_id === "alice")!.topic, title: "Neues Abo: Pro monatlich", message: "Voller Preis", tags: ["moneybag"], priority: 4 }]);
+
+  db.saveSetting("ntfy_user.alice", JSON.stringify({ enabled: true, events: [], recovery: true, apps: [] }));
+  db.default.query("UPDATE ntfy_outbox SET sent_at=NULL").run();
+  await deliverNtfy((async () => new Response(null)) as unknown as typeof fetch, 1_090_000);
+  expect(db.default.query("SELECT count(*) AS n FROM ntfy_outbox").get()).toEqual({ n: 0 });
 });

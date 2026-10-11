@@ -3,7 +3,9 @@ import { get, post, put } from "../../api/client.ts";
 import { Card, CardHeader, Btn, Field, Badge, Table, EmptyState, InlineNotice, SkeletonCard, humanize, showToast } from "../../components/ui.tsx";
 
 import { NeoSelect } from "../../components/neo-select.tsx";
-import { AlertTriangle, Archive, Download, KeyRound, RefreshCw, Settings2, ShieldCheck } from "lucide-react";
+import { AlertTriangle, Archive, ChevronLeft, ChevronRight, Download, KeyRound, RefreshCw, Settings2, ShieldCheck } from "lucide-react";
+
+const BACKUPS_PER_PAGE = 10;
 
 type Form = { backup_enabled: boolean; backup_bucket: string; backup_prefix: string; backup_retention: number };
 type State = Form & {
@@ -16,6 +18,7 @@ export function PanelProtection() {
   const [recoveryKey, setRecoveryKey] = useState("");
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [backupPage, setBackupPage] = useState(0);
   const [error, setError] = useState("");
   const [stopped, setStopped] = useState(false);
   const [resumeOps, setResumeOps] = useState(false);
@@ -52,6 +55,9 @@ export function PanelProtection() {
   const validBucket = !bucketsLoading && !bucketError && buckets.includes(form.backup_bucket);
   const canSave = validBucket && state.recovery_key_configured;
   const activeBackup = state.backups.some(b => b.status === "pending" || b.status === "running");
+  const pages = Math.max(1, Math.ceil(state.backups.length / BACKUPS_PER_PAGE));
+  // Clamp after retention prunes rows; the list refreshes automatically.
+  const page = Math.min(backupPage, pages - 1);
   const save = async () => {
     await put("/api/protection", form);
     await load(true); setEditing(false); setRecoveryKey(""); showToast("Backup settings saved", "success");
@@ -119,13 +125,21 @@ export function PanelProtection() {
         </div>
         <div className="flex items-center justify-between gap-3 px-4 pb-2 pt-4"><h4 className="text-sm font-semibold text-fg">Backup history</h4><span className="text-xs text-muted"><span className="tabular-nums">{state.backups.length}</span> records · updates automatically</span></div>
         {state.backups.length === 0 ? <EmptyState icon={Archive} message="No backups yet" description={`Create your first backup with “Back up now”${state.backup_enabled ? ", or wait for the daily schedule." : "."}`} /> : <div className="border-t"><Table headers={["Created", "Status", "Size", "Backup location"]}>
-          {state.backups.map(b => <tr key={b.id}>
+          {state.backups.slice(page * BACKUPS_PER_PAGE, (page + 1) * BACKUPS_PER_PAGE).map(b => <tr key={b.id}>
             <td className="whitespace-nowrap text-xs tabular-nums text-fg-dim">{new Date(b.created_at).toLocaleString()}</td>
             <td><Badge tone={b.status === "complete" ? "success" : b.status === "failed" ? "danger" : b.status === "pending" || b.status === "running" ? "warning" : "neutral"}>{statusLabel(b.status)}</Badge></td>
             <td className="whitespace-nowrap font-mono text-xs tabular-nums text-fg-dim">{b.size_bytes ? `${(b.size_bytes / 1024 / 1024).toFixed(2)} MB` : "—"}</td>
             <td className="min-w-48"><code className="select-all break-all font-mono text-xs text-fg-dim">s3://{b.bucket}/{b.object_key}</code>{b.error && <p className="mt-1 break-words text-xs text-danger">{b.error}</p>}</td>
           </tr>)}
-        </Table></div>}
+        </Table>
+          {pages > 1 && <div className="flex items-center justify-between gap-3 border-t bg-subtle/40 px-4 py-2.5">
+            <span className="text-xs tabular-nums text-muted">{page * BACKUPS_PER_PAGE + 1}–{Math.min((page + 1) * BACKUPS_PER_PAGE, state.backups.length)} of {state.backups.length}</span>
+            <div className="flex items-center gap-2">
+              <Btn size="xs" variant="ghost" disabled={page === 0} onClick={() => setBackupPage(page - 1)} ariaLabel="Newer backups"><ChevronLeft size={12} /> Newer</Btn>
+              <Btn size="xs" variant="ghost" disabled={page >= pages - 1} onClick={() => setBackupPage(page + 1)} ariaLabel="Older backups">Older <ChevronRight size={12} /></Btn>
+            </div>
+          </div>}
+        </div>}
       </>}
     </Card>
   </div>;
